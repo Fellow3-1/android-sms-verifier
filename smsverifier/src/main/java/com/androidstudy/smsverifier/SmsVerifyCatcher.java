@@ -2,103 +2,264 @@ package com.androidstudy.smsverifier;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.app.Fragment;
-import android.support.v4.content.ContextCompat;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.Fragment;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Created by Juma on 1/25/2018.
+ * Lifecycle-aware helper that manages runtime SMS permissions and registers an {@link SmsReceiver}
+ * to automatically intercept incoming SMS verification messages.
  */
-
 public class SmsVerifyCatcher {
-    private final static int PERMISSION_REQUEST_CODE = 12;
+
+    public static final int PERMISSION_REQUEST_CODE = 12;
+    private static final Pattern DEFAULT_CODE_PATTERN = Pattern.compile("\\b\\d{4,8}\\b");
 
     private Activity activity;
     private Fragment fragment;
-    private OnSmsCatchListener<String> onSmsCatchListener;
+    private final OnSmsCatchListener<String> onSmsCatchListener;
     private SmsReceiver smsReceiver;
     private String phoneNumber;
     private String filter;
+    private boolean isRegistered = false;
 
-    public SmsVerifyCatcher(Activity activity, OnSmsCatchListener<String> onSmsCatchListener) {
+    public SmsVerifyCatcher(@NonNull Activity activity,
+                            @NonNull OnSmsCatchListener<String> onSmsCatchListener) {
         this.activity = activity;
         this.onSmsCatchListener = onSmsCatchListener;
-        smsReceiver = new SmsReceiver();
-        smsReceiver.setCallback(this.onSmsCatchListener);
+        this.smsReceiver = new SmsReceiver();
+        this.smsReceiver.setCallback(this.onSmsCatchListener);
     }
 
-    public SmsVerifyCatcher(Activity activity, Fragment fragment, OnSmsCatchListener<String> onSmsCatchListener) {
+    public SmsVerifyCatcher(@NonNull Activity activity,
+                            @Nullable Fragment fragment,
+                            @NonNull OnSmsCatchListener<String> onSmsCatchListener) {
         this(activity, onSmsCatchListener);
         this.fragment = fragment;
     }
 
+    public SmsVerifyCatcher(@NonNull Fragment fragment,
+                            @NonNull OnSmsCatchListener<String> onSmsCatchListener) {
+        this(fragment.requireActivity(), fragment, onSmsCatchListener);
+    }
+
+    /**
+     * Call from {@code Activity.onStart()} or {@code Fragment.onStart()}.
+     * Requests runtime {@code RECEIVE_SMS} permission if needed and registers the SMS receiver.
+     */
     public void onStart() {
-        if (isStoragePermissionGranted(activity, fragment)) {
+        Activity hostActivity = resolveActivity();
+        if (hostActivity == null) {
+            return;
+        }
+        if (isSmsPermissionGranted(hostActivity, fragment)) {
             registerReceiver();
         }
     }
 
     private void registerReceiver() {
-        smsReceiver = new SmsReceiver();
+        Activity hostActivity = resolveActivity();
+        if (isRegistered || hostActivity == null || hostActivity.isFinishing()) {
+            return;
+        }
+        if (smsReceiver == null) {
+            smsReceiver = new SmsReceiver();
+        }
         smsReceiver.setCallback(onSmsCatchListener);
         smsReceiver.setPhoneNumberFilter(phoneNumber);
         smsReceiver.setFilter(filter);
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction("android.provider.Telephony.SMS_RECEIVED");
-        activity.registerReceiver(smsReceiver, intentFilter);
+
+        IntentFilter intentFilter = new IntentFilter(SmsReceiver.SMS_RECEIVED_ACTION);
+        intentFilter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY - 1);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            hostActivity.registerReceiver(
+                    smsReceiver,
+                    intentFilter,
+                    Manifest.permission.BROADCAST_SMS,
+                    null,
+                    Context.RECEIVER_EXPORTED
+            );
+        } else {
+            hostActivity.registerReceiver(
+                    smsReceiver,
+                    intentFilter,
+                    Manifest.permission.BROADCAST_SMS,
+                    null
+            );
+        }
+        isRegistered = true;
     }
 
-    public void setPhoneNumberFilter(String phoneNumber) {
+    /**
+     * Filter incoming SMS messages by sender phone number, prefix (e.g. "2547"), or sender ID.
+     * Pass {@code null} or empty string to clear the filter.
+     */
+    public void setPhoneNumberFilter(@Nullable String phoneNumber) {
         this.phoneNumber = phoneNumber;
-    }
-
-    public void onStop() {
-        try {
-            activity.unregisterReceiver(smsReceiver);
-        } catch (IllegalArgumentException ignore) {
-            //receiver not registered
+        if (smsReceiver != null) {
+            smsReceiver.setPhoneNumberFilter(phoneNumber);
         }
     }
 
-    public void setFilter(String regexp) {
+    /**
+     * Filter incoming SMS messages by body regular expression.
+     * Pass {@code null} or empty string to clear the filter.
+     */
+    public void setFilter(@Nullable String regexp) {
         this.filter = regexp;
+        if (smsReceiver != null) {
+            smsReceiver.setFilter(regexp);
+        }
     }
 
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults[0] == PackageManager.PERMISSION_GRANTED &&
-                    grantResults[1] == PackageManager.PERMISSION_GRANTED) {
-                registerReceiver();
+    /**
+     * Call from {@code Activity.onStop()} or {@code Fragment.onStop()} to unregister the receiver.
+     */
+    public void onStop() {
+        Activity hostActivity = resolveActivity();
+        if (isRegistered && hostActivity != null && smsReceiver != null) {
+            try {
+                hostActivity.unregisterReceiver(smsReceiver);
+            } catch (IllegalArgumentException ignore) {
+                // Receiver was already unregistered
+            } finally {
+                isRegistered = false;
             }
         }
     }
 
+    /**
+     * Returns {@code true} when the underlying {@link BroadcastReceiver} is actively registered.
+     */
+    public boolean isRegistered() {
+        return isRegistered;
+    }
 
-    //For fragments
-    public static boolean isStoragePermissionGranted(Activity activity, Fragment fragment) {
-        if (Build.VERSION.SDK_INT >= 23) {
+    /**
+     * Forward {@code onRequestPermissionsResult} from your Activity or Fragment so the SMS
+     * receiver is automatically registered as soon as runtime permission is granted.
+     */
+    public void onRequestPermissionsResult(int requestCode,
+                                           @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        if (requestCode != PERMISSION_REQUEST_CODE) {
+            return;
+        }
+        if (grantResults == null || grantResults.length == 0) {
+            // Permission prompt was cancelled or interrupted
+            return;
+        }
+
+        boolean receiveSmsGranted = false;
+        if (permissions != null && permissions.length == grantResults.length) {
+            for (int i = 0; i < permissions.length; i++) {
+                if (Manifest.permission.RECEIVE_SMS.equals(permissions[i])
+                        && grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    receiveSmsGranted = true;
+                    break;
+                }
+            }
+        } else if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            receiveSmsGranted = true;
+        }
+
+        if (receiveSmsGranted) {
+            registerReceiver();
+        }
+    }
+
+    /**
+     * Checks whether {@link Manifest.permission#RECEIVE_SMS} is granted, requesting it at runtime
+     * on Android 6.0 (API 23) and above if not yet granted.
+     */
+    public static boolean isSmsPermissionGranted(@NonNull Activity activity,
+                                                 @Nullable Fragment fragment) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (ContextCompat.checkSelfPermission(activity, Manifest.permission.RECEIVE_SMS)
-                    == PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(activity, Manifest.permission.READ_SMS)
-                            == PackageManager.PERMISSION_GRANTED) {
+                    == PackageManager.PERMISSION_GRANTED) {
                 return true;
             } else {
+                String[] requiredPermissions = new String[]{Manifest.permission.RECEIVE_SMS};
                 if (fragment == null) {
-                    ActivityCompat.requestPermissions(activity,
-                            new String[]{Manifest.permission.RECEIVE_SMS,
-                                    Manifest.permission.READ_SMS}, PERMISSION_REQUEST_CODE);
+                    ActivityCompat.requestPermissions(activity, requiredPermissions, PERMISSION_REQUEST_CODE);
                 } else {
-                    fragment.requestPermissions(
-                            new String[]{Manifest.permission.RECEIVE_SMS,
-                                    Manifest.permission.READ_SMS}, PERMISSION_REQUEST_CODE);
+                    fragment.requestPermissions(requiredPermissions, PERMISSION_REQUEST_CODE);
                 }
                 return false;
             }
-        } else {
-            return true;
         }
+        return true;
+    }
+
+    /**
+     * @deprecated Renamed to {@link #isSmsPermissionGranted(Activity, Fragment)}.
+     */
+    @Deprecated
+    public static boolean isStoragePermissionGranted(@NonNull Activity activity,
+                                                     @Nullable Fragment fragment) {
+        return isSmsPermissionGranted(activity, fragment);
+    }
+
+    /**
+     * Extracts the first 4-to-8 digit numeric verification code from an SMS message.
+     *
+     * @param message incoming SMS message text
+     * @return extracted code, or empty string {@code ""} if none found
+     */
+    @NonNull
+    public static String parseCode(@Nullable String message) {
+        if (message == null || message.isEmpty()) {
+            return "";
+        }
+        Matcher matcher = DEFAULT_CODE_PATTERN.matcher(message);
+        if (matcher.find()) {
+            return matcher.group(0);
+        }
+        return "";
+    }
+
+    /**
+     * Extracts the first numeric verification code with the exact specified number of digits.
+     *
+     * @param message    incoming SMS message text
+     * @param codeLength expected digit count (e.g. 4 or 6)
+     * @return extracted code, or empty string {@code ""} if none found
+     */
+    @NonNull
+    public static String parseCode(@Nullable String message, int codeLength) {
+        if (codeLength <= 0) {
+            throw new IllegalArgumentException("codeLength must be positive, got: " + codeLength);
+        }
+        if (message == null || message.isEmpty()) {
+            return "";
+        }
+        Pattern pattern = Pattern.compile("\\b\\d{" + codeLength + "}\\b");
+        Matcher matcher = pattern.matcher(message);
+        if (matcher.find()) {
+            return matcher.group(0);
+        }
+        return "";
+    }
+
+    @Nullable
+    private Activity resolveActivity() {
+        if (activity != null) {
+            return activity;
+        }
+        if (fragment != null) {
+            activity = fragment.getActivity();
+        }
+        return activity;
     }
 }

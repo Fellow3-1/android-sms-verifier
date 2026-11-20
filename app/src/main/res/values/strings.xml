@@ -1,5 +1,17 @@
 <resources>
-    <string name="app_name">AndroidSMSVerifier</string>
-    <string name="verification_code">Verification code</string>
-    <string name="verify">Verify</string>
+    <string name="app_name">Android SMS Verifier</string>
+    <string name="title_verify_phone">Verify Phone Number</string>
+    <string name="subtitle_verify_phone">Enter the OTP sent via SMS — it will be filled automatically as soon as the message arrives.</string>
+    <string name="status_listening">Listening for incoming verification SMS…</string>
+    <string name="status_permission_needed">Grant SMS permission to enable automatic code detection.</string>
+    <string name="status_code_caught">SMS intercepted! Verification code auto-filled.</string>
+    <string name="status_verified">Phone number verified successfully!</string>
+    <string name="label_verification_code">VERIFICATION CODE</string>
+    <string name="verification_code">4 – 8 digit code</string>
+    <string name="label_sender_filter">SENDER FILTER (OPTIONAL)</string>
+    <string name="hint_sender_filter">e.g. 2547 or AFRICASTKNG (blank = all senders)</string>
+    <string name="verify">Verify Code</string>
+    <string name="simulate_sms">Simulate Incoming SMS</string>
+    <string name="error_invalid_code">Please enter a valid 4 to 8 digit verification code</string>
+    <string name="sample_simulated_sms">Your Android SMS Verifier code is 482910. Valid for 5 minutes.</string>
 </resources>
