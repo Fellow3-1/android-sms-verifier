@@ -1,9 +1,10 @@
 package com.androidstudy.smsverifier;
 
 /**
- * Created by Juma on 1/25/2018.
+ * Callback listener invoked when an incoming SMS matching configured filters is intercepted.
+ *
+ * @param <T> payload type (typically {@link String})
  */
-
 public interface OnSmsCatchListener<T> {
-    void onSmsCatch(String message);
+    void onSmsCatch(T message);
 }

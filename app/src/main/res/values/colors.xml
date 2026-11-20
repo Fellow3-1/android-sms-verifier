@@ -2,5 +2,17 @@
 <resources>
     <color name="colorPrimary">#3F51B5</color>
     <color name="colorPrimaryDark">#303F9F</color>
-    <color name="colorAccent">#FF4081</color>
+    <color name="colorAccent">#00BFA5</color>
+    <color name="colorBackground">#F5F7FB</color>
+    <color name="colorCardSurface">#FFFFFF</color>
+    <color name="colorTextPrimary">#1E293B</color>
+    <color name="colorTextSecondary">#64748B</color>
+    <color name="colorBorder">#CBD5E1</color>
+    <color name="colorCardStroke">#E2E8F0</color>
+    <color name="colorInputSurface">#F8FAFC</color>
+    <color name="colorInfoBg">#EEF2FF</color>
+    <color name="colorInfoStroke">#C7D2FE</color>
+    <color name="colorSuccess">#16A34A</color>
+    <color name="colorSuccessBg">#DCFCE7</color>
+    <color name="colorError">#DC2626</color>
 </resources>
